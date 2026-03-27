@@ -1,0 +1,22 @@
+# Cloned dependencies (not our code)
+mobius/
+qwen3-asr/
+
+# CoreML artifacts
+*.mlpackage
+*.mlmodelc
+build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Model weights
+*.bin
+*.safetensors
+*.gguf
+
+# OS
+.DS_Store
