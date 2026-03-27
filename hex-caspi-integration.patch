@@ -1,0 +1,173 @@
+diff --git a/Hex/Clients/TranscriptionClient.swift b/Hex/Clients/TranscriptionClient.swift
+index 06167c6..feb80e0 100644
+--- a/Hex/Clients/TranscriptionClient.swift
++++ b/Hex/Clients/TranscriptionClient.swift
+@@ -73,6 +73,7 @@ actor TranscriptionClientLive {
+   /// The name of the currently loaded model, if any.
+   private var currentModelName: String?
+   private var parakeet: ParakeetClient = ParakeetClient()
++  private var qwen: QwenClient = QwenClient()
+ 
+   /// The base folder under which we store model data (e.g., ~/Library/Application Support/...).
+   private lazy var modelsBaseFolder: URL = {
+@@ -94,6 +95,12 @@ actor TranscriptionClientLive {
+       currentModelName = variant
+       return
+     }
++    // If Qwen3/Caspi, use Qwen client path
++    if isQwen(variant) {
++      try await qwen.ensureLoaded(modelName: variant, progress: progressCallback)
++      currentModelName = variant
++      return
++    }
+     // Resolve wildcard patterns (e.g., "distil*large-v3") to a concrete variant
+     let variant = await resolveVariant(variant)
+     // Special handling for corrupted or malformed variant names
+@@ -145,6 +152,11 @@ actor TranscriptionClientLive {
+       if currentModelName == variant { unloadCurrentModel() }
+       return
+     }
++    if isQwen(variant) {
++      try await qwen.deleteCaches(modelName: variant)
++      if currentModelName == variant { unloadCurrentModel() }
++      return
++    }
+     let modelFolder = modelPath(for: variant)
+ 
+     // Check if the model exists
+@@ -172,6 +184,11 @@ actor TranscriptionClientLive {
+       parakeetLogger.debug("Parakeet available? \(available)")
+       return available
+     }
++    if isQwen(modelName) {
++      let available = await qwen.isModelAvailable(modelName)
++      parakeetLogger.debug("Qwen3 available? \(available)")
++      return available
++    }
+     let modelFolderPath = modelPath(for: modelName).path
+     let fileManager = FileManager.default
+ 
+@@ -243,6 +260,19 @@ actor TranscriptionClientLive {
+       transcriptionLogger.info("Parakeet request total elapsed \(String(format: "%.2f", Date().timeIntervalSince(startAll)))s")
+       return text
+     }
++    if isQwen(model) {
++      transcriptionLogger.notice("Transcribing with Qwen3/Caspi model=\(model) file=\(url.lastPathComponent)")
++      let startLoad = Date()
++      try await downloadAndLoadModel(variant: model) { p in
++        progressCallback(p)
++      }
++      transcriptionLogger.info("Qwen3 ensureLoaded took \(String(format: "%.2f", Date().timeIntervalSince(startLoad)))s")
++      let startTx = Date()
++      let text = try await qwen.transcribe(url, language: options.language)
++      transcriptionLogger.info("Qwen3 transcription took \(String(format: "%.2f", Date().timeIntervalSince(startTx)))s")
++      transcriptionLogger.info("Qwen3 request total elapsed \(String(format: "%.2f", Date().timeIntervalSince(startAll)))s")
++      return text
++    }
+     let model = await resolveVariant(model)
+     // Load or switch to the required model if needed.
+     if whisperKit == nil || model != currentModelName {
+@@ -301,6 +331,10 @@ actor TranscriptionClientLive {
+     ParakeetModel(rawValue: name) != nil
+   }
+ 
++  private func isQwen(_ name: String) -> Bool {
++    QwenModel(rawValue: name) != nil
++  }
++
+   /// Creates or returns the local folder (on disk) for a given `variant` model.
+   private func modelPath(for variant: String) -> URL {
+     // Remove any possible path traversal or invalid characters from variant name
+diff --git a/Hex/Features/Settings/ModelDownload/CuratedList.swift b/Hex/Features/Settings/ModelDownload/CuratedList.swift
+index d1751da..b5c2276 100644
+--- a/Hex/Features/Settings/ModelDownload/CuratedList.swift
++++ b/Hex/Features/Settings/ModelDownload/CuratedList.swift
+@@ -10,13 +10,13 @@ struct CuratedList: View {
+ 		if store.showAllModels {
+ 			return Array(store.curatedModels)
+ 		} else {
+-			// Show only Parakeet by default
+-			return store.curatedModels.filter { $0.isParakeet }
++			// Show Parakeet and Qwen models by default
++			return store.curatedModels.filter { $0.isParakeet || $0.isQwen }
+ 		}
+ 	}
+ 
+ 	private var hiddenModels: [CuratedModelInfo] {
+-		store.curatedModels.filter { !$0.isParakeet }
++		store.curatedModels.filter { !$0.isParakeet && !$0.isQwen }
+ 	}
+ 
+ 	var body: some View {
+diff --git a/Hex/Features/Settings/ModelDownload/ModelDownloadFeature.swift b/Hex/Features/Settings/ModelDownload/ModelDownloadFeature.swift
+index e878e92..2fbea12 100644
+--- a/Hex/Features/Settings/ModelDownload/ModelDownloadFeature.swift
++++ b/Hex/Features/Settings/ModelDownload/ModelDownloadFeature.swift
+@@ -43,18 +43,30 @@ public struct CuratedModelInfo: Equatable, Identifiable, Codable {
+ 		case .multilingualV3:
+ 			return "BEST FOR MULTILINGUAL"
+ 		case nil:
+-			return nil
++			break
+ 		}
++		if qwenModel != nil {
++			return "BEST FOR HEBREW"
++		}
++		return nil
+ 	}
+ 
+ 	var parakeetModel: ParakeetModel? {
+ 		ParakeetModel(rawValue: internalName)
+ 	}
+ 
++	var qwenModel: QwenModel? {
++		QwenModel(rawValue: internalName)
++	}
++
+ 	var isParakeet: Bool {
+ 		parakeetModel != nil
+ 	}
+ 
++	var isQwen: Bool {
++		qwenModel != nil
++	}
++
+ 	public init(
+ 		displayName: String,
+ 		internalName: String,
+diff --git a/Hex/Features/Settings/SettingsView.swift b/Hex/Features/Settings/SettingsView.swift
+index 7d15e84..d12396e 100644
+--- a/Hex/Features/Settings/SettingsView.swift
++++ b/Hex/Features/Settings/SettingsView.swift
+@@ -24,8 +24,10 @@ struct SettingsView: View {
+ 			}
+ 
+ 			ModelSectionView(store: store, shouldFlash: store.shouldFlashModelSection)
+-			// Only show language picker for WhisperKit models (not Parakeet)
+-			if ParakeetModel(rawValue: store.hexSettings.selectedModel) == nil {
++			// Show language picker for WhisperKit and Qwen3 models (not Parakeet)
++			if ParakeetModel(rawValue: store.hexSettings.selectedModel) == nil
++				|| QwenModel(rawValue: store.hexSettings.selectedModel) != nil
++			{
+ 				LanguageSectionView(store: store)
+ 			}
+ 
+diff --git a/Hex/Resources/Data/models.json b/Hex/Resources/Data/models.json
+index f3b48d8..eab3fd3 100644
+--- a/Hex/Resources/Data/models.json
++++ b/Hex/Resources/Data/models.json
+@@ -15,6 +15,14 @@
+     "speedStars": 5,
+     "storageSize": "650MB"
+   },
++  {
++    "displayName": "Caspi 1.7B (Hebrew)",
++    "internalName": "caspi-1.7b-coreml",
++    "size": "Hebrew",
++    "accuracyStars": 5,
++    "speedStars": 3,
++    "storageSize": "2.8GB"
++  },
+   {
+     "displayName": "Whisper Small (Tiny)",
+     "internalName": "openai_whisper-tiny",

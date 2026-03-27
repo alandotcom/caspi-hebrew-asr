@@ -1,6 +1,8 @@
 # Cloned dependencies (not our code)
 mobius/
 qwen3-asr/
+FluidAudio/
+Hex/
 
 # CoreML artifacts
 *.mlpackage
