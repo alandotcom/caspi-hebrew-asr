@@ -1,0 +1,3 @@
+[submodule "qwen3-asr"]
+	path = qwen3-asr
+	url = https://github.com/QwenLM/Qwen3-ASR.git

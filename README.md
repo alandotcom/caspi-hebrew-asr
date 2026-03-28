@@ -7,8 +7,9 @@ Forked from [FluidInference/mobius](https://github.com/FluidInference/mobius/tre
 ## Related repos
 
 - **CoreML models**: [alandotcom/caspi-1.7b-coreml](https://huggingface.co/alandotcom/caspi-1.7b-coreml) on HuggingFace
-- **Hex fork** (macOS dictation app): [alandotcom/Hex](https://github.com/alandotcom/Hex)
-- **FluidAudio fork** (inference library): [alandotcom/FluidAudio](https://github.com/alandotcom/FluidAudio)
+- **Hex fork** (macOS dictation app): [alandotcom/Hex](https://github.com/alandotcom/Hex) — clone to `~/projects/Hex`
+- **FluidAudio fork** (inference library): [alandotcom/FluidAudio](https://github.com/alandotcom/FluidAudio) — clone to `~/projects/FluidAudio`
+- **Mobius** (reference): [FluidInference/mobius](https://github.com/FluidInference/mobius) — clone to `~/projects/mobius`
 
 ## Architecture: Caspi-1.7B vs Qwen3-ASR-0.6B
 
@@ -34,12 +35,11 @@ Forked from [FluidInference/mobius](https://github.com/FluidInference/mobius/tre
 ## Setup
 
 ```bash
-git clone https://github.com/alandotcom/caspi-hebrew-asr.git
+git clone --recurse-submodules https://github.com/alandotcom/caspi-hebrew-asr.git
 cd caspi-hebrew-asr
 
-# Clone dependencies (needed by conversion scripts)
-git clone https://github.com/FluidInference/mobius.git
-git clone https://github.com/QwenLM/Qwen3-ASR.git qwen3-asr
+# Or if already cloned:
+git submodule update --init
 
 # Install Python deps
 cd conversion
